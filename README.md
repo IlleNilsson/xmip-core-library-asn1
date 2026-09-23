@@ -1,4 +1,4 @@
-# xmip-core-asn1
+# xmip-core-library-asn1
 
 X.690, the tag-length-value every ASN.1 protocol and token frames with, read
 and written: a one-byte tag, a definite length in short or long form, the

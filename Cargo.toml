@@ -2,11 +2,11 @@
 [workspace]
 
 [package]
-name = "xmip-core-asn1"
+name = "xmip-core-library-asn1"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/IlleNilsson/xmip-core-asn1"
+repository = "https://github.com/IlleNilsson/xmip-core-library-asn1"
 description = "X.690 tag-length-value for Xmip: BER and DER, read and written."
 
 [lib]
