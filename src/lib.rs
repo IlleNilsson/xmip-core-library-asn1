@@ -25,10 +25,12 @@
 mod decode;
 mod element;
 mod encode;
+mod oid;
 
 pub use decode::{expect, find, read, read_all, read_element, read_integer};
 pub use element::Element;
 pub use encode::{integer, tlv, write_tlv};
+pub use oid::{object_identifier, read_object_identifier};
 
 /// `BOOLEAN`.
 pub const BOOLEAN: u8 = 0x01;

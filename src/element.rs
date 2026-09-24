@@ -4,6 +4,8 @@
 //! `[n]`; [`Element::field`] finds and unwraps one. Nothing is copied: an
 //! element borrows its contents from the bytes it was read out of.
 
+use codec::civil::CivilTime;
+
 use crate::{Asn1Error, GENERAL_STRING, GENERALIZED_TIME, INTEGER, Result, context};
 
 /// One element: its tag and its contents.
@@ -104,21 +106,19 @@ impl<'a> Element<'a> {
         if self.tag != GENERALIZED_TIME || text.len() != 15 || !text.ends_with('Z') {
             return None;
         }
-        let number = |from: usize, to: usize| text.get(from..to)?.parse::<i64>().ok();
-        let (year, month, day) = (number(0, 4)?, number(4, 6)?, number(6, 8)?);
-        let (hour, minute, second) = (number(8, 10)?, number(10, 12)?, number(12, 14)?);
-        if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 {
+        if !text.as_bytes()[..14].iter().all(u8::is_ascii_digit) {
             return None;
         }
-        // Days from the civil date, proleptic Gregorian.
-        let year = if month <= 2 { year - 1 } else { year };
-        let era = year.div_euclid(400);
-        let year_of_era = year.rem_euclid(400);
-        let shifted = (month + 9) % 12;
-        let day_of_year = (153 * shifted + 2) / 5 + day - 1;
-        let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-        let days = era * 146_097 + day_of_era - 719_468;
-        Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+        let number = |from: usize, to: usize| text.get(from..to)?.parse::<u32>().ok();
+        let moment = CivilTime::new(
+            i64::from(number(0, 4)?),
+            number(4, 6)?,
+            number(6, 8)?,
+            number(8, 10)?,
+            number(10, 12)?,
+            number(12, 14)?,
+        )?;
+        Some(moment.unix())
     }
 }
 
@@ -187,6 +187,8 @@ mod tests {
         assert_eq!(at("19700101000000Z"), Some(0));
         assert_eq!(at("20270115080000Z"), Some(1_800_000_000));
         assert_eq!(at("20271315080000Z"), None);
+        assert_eq!(at("20270230080000Z"), None, "the thirtieth of February");
+        assert_eq!(at("2027011508+000Z"), None, "a sign is not a digit");
         assert_eq!(at("2027011508Z"), None);
     }
 

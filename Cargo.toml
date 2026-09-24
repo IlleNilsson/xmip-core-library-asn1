@@ -12,6 +12,10 @@ description = "X.690 tag-length-value for Xmip: BER and DER, read and written."
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+# The estate's encoding primitives: the civil calendar a GeneralizedTime is read into.
+codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
+
 [lints.rust]
 # forbid, not deny: a module has no business writing unsafe. The one exception
 # in the estate is xmip-core-abi, which holds the extern "C" vtable over
