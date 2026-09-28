@@ -15,12 +15,18 @@ refused, a length is at most four bytes wide, and nothing is copied — an
 `Element` borrows its contents from the bytes it was read out of.
 
 The content encodings of the universal types every protocol shares are here
-too: an `INTEGER`'s two's complement and an `OBJECT IDENTIFIER`'s arcs,
-which SNMP carried the only copy of until 2026-09-24. How a protocol spells
-an identifier as text stays with the protocol.
+too: an `INTEGER`'s two's complement, read once and taken signed
+(`read_integer`) or unsigned (`read_unsigned`, which `Element::integer` and
+SNMP's counters and gauges read through) and written either way (`integer`,
+`unsigned`); and an `OBJECT IDENTIFIER`'s arcs, as contents and as the
+dotted text X.660 writes them in (`dotted`, `read_dotted`). SNMP carried the
+only copy of the identifier until 2026-09-24, and its dotted text, the
+unsigned reader and writer until 2026-09-28, when this crate also read a
+32-bit `INTEGER` a second way.
 
-A `GeneralizedTime` is read into seconds since the epoch through
-`xmip-core-library-codec`'s civil calendar, the estate's one; until 2026-09-24
-this crate and the SAML gate each carried the arithmetic.
+What a `GeneralString` or a `GeneralizedTime` means to Kerberos — UTF-8
+text, and whole seconds in UTC only — is Kerberos's, in
+`xmip-core-identify` (`identify::kerberos`); it sat here until 2026-09-28.
+The crate depends on nothing.
 
 `architecture.toml` carries the maturity.

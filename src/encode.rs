@@ -31,6 +31,23 @@ fn write_length(out: &mut Vec<u8>, len: usize) {
     out.extend_from_slice(&bytes[first..]);
 }
 
+/// An unsigned `INTEGER`'s contents — a counter, a gauge — the fewest
+/// bytes, and a zero in front where the top bit would read as a sign.
+#[must_use]
+pub fn unsigned(value: u64) -> Vec<u8> {
+    let bytes = value.to_be_bytes();
+    let first = bytes
+        .iter()
+        .position(|b| *b != 0)
+        .unwrap_or(bytes.len() - 1);
+    let mut out = Vec::with_capacity(9);
+    if bytes[first] & 0x80 != 0 {
+        out.push(0);
+    }
+    out.extend_from_slice(&bytes[first..]);
+    out
+}
+
 /// An `INTEGER`'s contents: two's complement, the fewest bytes that keep the
 /// sign. The tag is the caller's, since `ENUMERATED` and an implicitly tagged
 /// integer are written the same way.
@@ -52,7 +69,7 @@ pub fn integer(value: i64) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{NULL, OCTET_STRING, read_integer};
+    use crate::{NULL, OCTET_STRING, read_integer, read_unsigned};
 
     #[test]
     fn a_length_is_short_below_128_and_the_fewest_long_bytes_from_there() {
@@ -84,6 +101,16 @@ mod tests {
         }
         for value in [i64::MAX, i64::MIN] {
             assert_eq!(read_integer(&integer(value)).expect("read"), value);
+        }
+    }
+
+    #[test]
+    fn unsigned_integers_keep_a_zero_where_the_top_bit_is_set() {
+        assert_eq!(unsigned(0), [0x00]);
+        assert_eq!(unsigned(200), [0x00, 200]);
+        assert_eq!(unsigned(127), [0x7f]);
+        for value in [0, 127, 128, u64::from(u32::MAX), u64::MAX] {
+            assert_eq!(read_unsigned(&unsigned(value)).expect("read"), value);
         }
     }
 }

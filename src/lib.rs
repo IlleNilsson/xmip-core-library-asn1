@@ -27,17 +27,15 @@ mod element;
 mod encode;
 mod oid;
 
-pub use decode::{expect, find, read, read_all, read_element, read_integer};
+pub use decode::{expect, find, read, read_all, read_element, read_integer, read_unsigned};
 pub use element::Element;
-pub use encode::{integer, tlv, write_tlv};
-pub use oid::{object_identifier, read_object_identifier};
+pub use encode::{integer, tlv, unsigned, write_tlv};
+pub use oid::{dotted, object_identifier, read_dotted, read_object_identifier};
 
 /// `BOOLEAN`.
 pub const BOOLEAN: u8 = 0x01;
 /// `INTEGER`.
 pub const INTEGER: u8 = 0x02;
-/// `BIT STRING`.
-pub const BIT_STRING: u8 = 0x03;
 /// `OCTET STRING`.
 pub const OCTET_STRING: u8 = 0x04;
 /// `NULL`.
@@ -46,11 +44,11 @@ pub const NULL: u8 = 0x05;
 pub const OBJECT_IDENTIFIER: u8 = 0x06;
 /// `ENUMERATED`: an LDAP result code.
 pub const ENUMERATED: u8 = 0x0a;
-/// `GeneralizedTime`, which RFC 4120 uses for every time.
+/// `GeneralizedTime`.
 pub const GENERALIZED_TIME: u8 = 0x18;
 /// `VisibleString`.
 pub const VISIBLE_STRING: u8 = 0x1a;
-/// `GeneralString`, which RFC 4120 uses for every name.
+/// `GeneralString`.
 pub const GENERAL_STRING: u8 = 0x1b;
 /// `SEQUENCE` and `SEQUENCE OF`, constructed.
 pub const SEQUENCE: u8 = 0x30;

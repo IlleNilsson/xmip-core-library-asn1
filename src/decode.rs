@@ -94,20 +94,49 @@ pub fn find<'a>(elements: &[(u8, &'a [u8])], tag: u8) -> Result<&'a [u8]> {
         .ok_or_else(|| Asn1Error::new(format!("no element tagged {tag:#04x}")))
 }
 
-/// The value an `INTEGER`'s contents carry.
+/// The value an `INTEGER`'s contents carry, signed.
 ///
 /// # Errors
-/// Empty, or wider than sixty-four bits.
+/// Empty, or wider than eight bytes.
 pub fn read_integer(contents: &[u8]) -> Result<i64> {
-    if contents.is_empty() || contents.len() > 8 {
+    if contents.len() > 8 {
         return Err(Asn1Error::new(format!(
-            "an INTEGER of {} bytes, where one to eight are read",
+            "an INTEGER of {} bytes, where one to eight are read signed",
             contents.len()
         )));
     }
-    let mut value: i64 = if contents[0] & 0x80 != 0 { -1 } else { 0 };
+    i64::try_from(twos_complement(contents)?).map_err(|_| {
+        Asn1Error::new("an INTEGER outside what sixty-four bits hold, where a signed one is read")
+    })
+}
+
+/// The value an `INTEGER`'s contents carry where it may not be negative: a
+/// counter, a gauge, a version, an encryption type — one to nine bytes, the
+/// ninth only the zero that keeps the top bit from reading as a sign.
+///
+/// # Errors
+/// Empty, negative, or wider than sixty-four bits.
+pub fn read_unsigned(contents: &[u8]) -> Result<u64> {
+    u64::try_from(twos_complement(contents)?).map_err(|_| {
+        Asn1Error::new(
+            "an INTEGER that is negative or wider than sixty-four bits, where an \
+                        unsigned one is read",
+        )
+    })
+}
+
+/// The two's complement `contents` spell, the one reading of an
+/// `INTEGER`'s contents the typed readers above take their range from.
+fn twos_complement(contents: &[u8]) -> Result<i128> {
+    if contents.is_empty() || contents.len() > 9 {
+        return Err(Asn1Error::new(format!(
+            "an INTEGER of {} bytes, where one to nine are read",
+            contents.len()
+        )));
+    }
+    let mut value: i128 = if contents[0] & 0x80 != 0 { -1 } else { 0 };
     for &byte in contents {
-        value = (value << 8) | i64::from(byte);
+        value = (value << 8) | i128::from(byte);
     }
     Ok(value)
 }
@@ -176,7 +205,26 @@ mod tests {
         let mistagged = expect(&[0x04, 0x00], INTEGER).expect_err("mistagged");
         assert!(mistagged.message.contains("0x02"), "{}", mistagged.message);
         assert!(read_integer(&[]).is_err());
-        assert!(read_integer(&[0; 9]).is_err());
+        assert!(read_integer(&[0; 9]).is_err(), "nine bytes signed");
+        assert!(
+            read_integer(&[0x00, 0x80, 0, 0, 0, 0, 0, 0, 0]).is_err(),
+            "2^63"
+        );
+    }
+
+    #[test]
+    fn an_integer_reads_signed_or_unsigned_from_one_reading_of_its_contents() {
+        assert_eq!(read_integer(&[0xff, 0x7f]).expect("signed"), -129);
+        assert_eq!(
+            read_integer(&[0x80, 0, 0, 0, 0, 0, 0, 0]).expect("min"),
+            i64::MIN
+        );
+        assert_eq!(read_unsigned(&[0x00, 0x80]).expect("unsigned"), 128);
+        let max = [0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+        assert_eq!(read_unsigned(&max).expect("max"), u64::MAX);
+        assert!(read_unsigned(&[0x80]).is_err(), "negative");
+        assert!(read_unsigned(&[1, 0, 0, 0, 0, 0, 0, 0, 0]).is_err(), "2^64");
+        assert!(read_unsigned(&[]).is_err());
     }
 
     #[test]

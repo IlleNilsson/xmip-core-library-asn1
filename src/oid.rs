@@ -4,9 +4,31 @@
 //!
 //! Here beside [`crate::integer`] because it is a universal type's content
 //! encoding, which no protocol owns: SNMP carried the only copy until
-//! 2026-09-24. How a protocol spells an identifier as text is its own.
+//! 2026-09-24. So is the dotted text an identifier is written in (X.660),
+//! `1.3.6.1.2.1.1.3.0`, which SNMP carried until 2026-09-28.
 
 use crate::{Asn1Error, Result};
+
+/// The dotted text of `arcs`: `1.3.6.1.2.1.1.3.0`.
+#[must_use]
+pub fn dotted(arcs: &[u32]) -> String {
+    let mut text = String::with_capacity(arcs.len() * 4);
+    for (index, arc) in arcs.iter().enumerate() {
+        if index > 0 {
+            text.push('.');
+        }
+        text.push_str(&arc.to_string());
+    }
+    text
+}
+
+/// The arcs dotted text names, a leading dot allowed (`.1.3.6`); `None`
+/// where any arc is not a number that fits 32 bits.
+#[must_use]
+pub fn read_dotted(text: &str) -> Option<Vec<u32>> {
+    let text = text.strip_prefix('.').unwrap_or(text);
+    text.split('.').map(|arc| arc.parse().ok()).collect()
+}
 
 /// The contents that encode `arcs`. An identifier of fewer than two arcs is
 /// written as though the missing ones were zero.
@@ -94,6 +116,17 @@ mod tests {
         }
         assert_eq!(object_identifier(&[1, 3, 6, 1]), [0x2b, 6, 1]);
         assert_eq!(object_identifier(&[2, 5, 29, 74]), [0x55, 0x1d, 0x4a]);
+    }
+
+    #[test]
+    fn the_dotted_text_reads_back_as_its_arcs() {
+        assert_eq!(dotted(&[1, 3, 6, 1, 2, 1, 1, 3, 0]), "1.3.6.1.2.1.1.3.0");
+        assert_eq!(dotted(&[]), "");
+        assert_eq!(read_dotted(".1.3.6"), Some(vec![1, 3, 6]));
+        assert_eq!(read_dotted("1.3.6"), Some(vec![1, 3, 6]));
+        assert_eq!(read_dotted("1.x"), None);
+        assert_eq!(read_dotted("1..3"), None);
+        assert_eq!(read_dotted("4294967296"), None, "over 32 bits");
     }
 
     #[test]

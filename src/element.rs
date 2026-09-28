@@ -2,11 +2,11 @@
 //!
 //! Kerberos and SPNEGO are `SEQUENCE`s whose fields are each wrapped in
 //! `[n]`; [`Element::field`] finds and unwraps one. Nothing is copied: an
-//! element borrows its contents from the bytes it was read out of.
+//! element borrows its contents from the bytes it was read out of. What a
+//! `GeneralString` or a `GeneralizedTime` means to Kerberos is Kerberos's
+//! (`identify::kerberos`), not this reader's.
 
-use codec::civil::CivilTime;
-
-use crate::{Asn1Error, GENERAL_STRING, GENERALIZED_TIME, INTEGER, Result, context};
+use crate::{Asn1Error, INTEGER, Result, context};
 
 /// One element: its tag and its contents.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,53 +72,16 @@ impl<'a> Element<'a> {
             .transpose()
     }
 
-    /// The contents as a non-negative `INTEGER` that fits 32 bits.
+    /// The contents as a non-negative `INTEGER` that fits 32 bits, read by
+    /// [`crate::read_unsigned`].
     #[must_use]
     pub fn integer(&self) -> Option<u32> {
-        if self.tag != INTEGER || self.content.is_empty() || self.content[0] & 0x80 != 0 {
+        if self.tag != INTEGER {
             return None;
         }
-        let digits = match self.content {
-            [0, rest @ ..] => rest,
-            all => all,
-        };
-        (digits.len() <= 4).then(|| {
-            digits
-                .iter()
-                .fold(0_u32, |sum, octet| (sum << 8) | u32::from(*octet))
-        })
-    }
-
-    /// The contents as the text of a `GeneralString`.
-    #[must_use]
-    pub fn text(&self) -> Option<&'a str> {
-        (self.tag == GENERAL_STRING)
-            .then(|| core::str::from_utf8(self.content).ok())
-            .flatten()
-    }
-
-    /// The contents as a `GeneralizedTime` of whole seconds in UTC —
-    /// `YYYYMMDDHHMMSSZ`, the only form RFC 4120 section 5.2.3 allows — in
-    /// seconds since the Unix epoch.
-    #[must_use]
-    pub fn time(&self) -> Option<i64> {
-        let text = core::str::from_utf8(self.content).ok()?;
-        if self.tag != GENERALIZED_TIME || text.len() != 15 || !text.ends_with('Z') {
-            return None;
-        }
-        if !text.as_bytes()[..14].iter().all(u8::is_ascii_digit) {
-            return None;
-        }
-        let number = |from: usize, to: usize| text.get(from..to)?.parse::<u32>().ok();
-        let moment = CivilTime::new(
-            i64::from(number(0, 4)?),
-            number(4, 6)?,
-            number(6, 8)?,
-            number(8, 10)?,
-            number(10, 12)?,
-            number(12, 14)?,
-        )?;
-        Some(moment.unix())
+        crate::read_unsigned(self.content)
+            .ok()
+            .and_then(|value| u32::try_from(value).ok())
     }
 }
 
@@ -149,7 +112,7 @@ mod tests {
     fn a_tagged_field_is_found_among_its_siblings_and_unwrapped() {
         let fields = [
             tlv(context(0, true), &tlv(INTEGER, &[5])),
-            tlv(context(1, true), &tlv(GENERAL_STRING, b"HTTP")),
+            tlv(context(1, true), &tlv(OCTET_STRING, b"HTTP")),
         ]
         .concat();
         let sequence = tlv(SEQUENCE, &fields);
@@ -160,8 +123,8 @@ mod tests {
             Some(5)
         );
         assert_eq!(
-            element.field(1).expect("read").and_then(|e| e.text()),
-            Some("HTTP")
+            element.field(1).expect("read").map(|e| e.content),
+            Some(&b"HTTP"[..])
         );
         assert_eq!(element.field(3).expect("read"), None);
     }
@@ -175,21 +138,6 @@ mod tests {
             "{}",
             failure.message
         );
-    }
-
-    #[test]
-    fn a_generalized_time_is_seconds_since_the_epoch() {
-        let at = |text: &str| {
-            let encoded = tlv(GENERALIZED_TIME, text.as_bytes());
-            Element::read(&encoded).expect("read").0.time()
-        };
-
-        assert_eq!(at("19700101000000Z"), Some(0));
-        assert_eq!(at("20270115080000Z"), Some(1_800_000_000));
-        assert_eq!(at("20271315080000Z"), None);
-        assert_eq!(at("20270230080000Z"), None, "the thirtieth of February");
-        assert_eq!(at("2027011508+000Z"), None, "a sign is not a digit");
-        assert_eq!(at("2027011508Z"), None);
     }
 
     #[test]

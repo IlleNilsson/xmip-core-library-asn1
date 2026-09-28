@@ -13,8 +13,7 @@ description = "X.690 tag-length-value for Xmip: BER and DER, read and written."
 path = "src/lib.rs"
 
 [dependencies]
-# The estate's encoding primitives: the civil calendar a GeneralizedTime is read into.
-codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
+# None: X.690 is read and written with the standard library alone.
 
 [lints.rust]
 # forbid, not deny: a module has no business writing unsafe. The one exception
