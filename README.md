@@ -29,4 +29,4 @@ text, and whole seconds in UTC only — is Kerberos's, in
 `xmip-core-identify` (`identify::kerberos`); it sat here until 2026-09-28.
 The crate depends on nothing.
 
-`architecture.toml` carries the maturity.
+`architecture.xmip` carries the maturity.
