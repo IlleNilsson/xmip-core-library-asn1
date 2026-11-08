@@ -23,28 +23,48 @@ pub fn dotted(arcs: &[u32]) -> String {
 }
 
 /// The arcs dotted text names, a leading dot allowed (`.1.3.6`); `None`
-/// where any arc is not a number that fits 32 bits.
+/// where any arc is not a number that fits 32 bits, or the first two are
+/// no identifier's: a first arc other than 0, 1 or 2 (X.660), a second over
+/// 39 under 0 or 1, or the two folded past the 32 bits
+/// [`read_object_identifier`] reads back. What it gives, every identifier
+/// Xmip reads from text, is written and read back as itself.
 #[must_use]
 pub fn read_dotted(text: &str) -> Option<Vec<u32>> {
     let text = text.strip_prefix('.').unwrap_or(text);
-    text.split('.').map(|arc| arc.parse().ok()).collect()
+    let arcs: Vec<u32> = text
+        .split('.')
+        .map(|arc| arc.parse().ok())
+        .collect::<Option<_>>()?;
+    let first = arcs.first().copied().unwrap_or(0);
+    let second = arcs.get(1).copied().unwrap_or(0);
+    let rooted = (first < 2 && second < 40) || (first == 2 && u32::try_from(folded(&arcs)).is_ok());
+    rooted.then_some(arcs)
+}
+
+/// The first two arcs folded into one, `40 * first + second`, in 64 bits,
+/// where no two 32-bit arcs overflow.
+fn folded(arcs: &[u32]) -> u64 {
+    let first = u64::from(arcs.first().copied().unwrap_or(0));
+    first * 40 + u64::from(arcs.get(1).copied().unwrap_or(0))
 }
 
 /// The contents that encode `arcs`. An identifier of fewer than two arcs is
-/// written as though the missing ones were zero.
+/// written as though the missing ones were zero. The first two are folded
+/// in 64 bits, so no arcs overflow the fold; arcs [`read_dotted`] would
+/// refuse are written as X.690 spells them and are not read back as
+/// themselves.
 #[must_use]
 pub fn object_identifier(arcs: &[u32]) -> Vec<u8> {
     let mut out = Vec::new();
-    let first = arcs.first().copied().unwrap_or(0) * 40 + arcs.get(1).copied().unwrap_or(0);
-    base128(&mut out, first);
+    base128(&mut out, folded(arcs));
     for arc in arcs.iter().skip(2) {
-        base128(&mut out, *arc);
+        base128(&mut out, u64::from(*arc));
     }
     out
 }
 
-fn base128(out: &mut Vec<u8>, mut arc: u32) {
-    let mut stack = [0u8; 5];
+fn base128(out: &mut Vec<u8>, mut arc: u64) {
+    let mut stack = [0u8; 10];
     let mut count = 0;
     loop {
         stack[count] = u8::try_from(arc & 0x7f).unwrap_or(0);
@@ -72,7 +92,14 @@ pub fn read_object_identifier(contents: &[u8]) -> Result<Vec<u32>> {
     }
     let mut arcs = Vec::new();
     let mut arc: u32 = 0;
+    let mut starts = true;
     for byte in contents {
+        if starts && *byte == 0x80 {
+            return Err(Asn1Error::new(
+                "an OBJECT IDENTIFIER arc padded with a leading 0x80 (X.690 8.19.2)",
+            ));
+        }
+        starts = byte & 0x80 == 0;
         if arc >= (1 << 25) {
             return Err(Asn1Error::new(
                 "an OBJECT IDENTIFIER arc larger than 32 bits",
@@ -116,6 +143,32 @@ mod tests {
         }
         assert_eq!(object_identifier(&[1, 3, 6, 1]), [0x2b, 6, 1]);
         assert_eq!(object_identifier(&[2, 5, 29, 74]), [0x55, 0x1d, 0x4a]);
+    }
+
+    #[test]
+    fn arcs_that_fold_past_32_bits_or_name_no_root_are_refused() {
+        // `first * 40 + second` in 32 bits overflowed here: a panic in a
+        // debug build, a wrapped and wrong identifier in a release one.
+        let past = object_identifier(&[2, u32::MAX]);
+        assert_eq!(past.len(), 5, "folded in 64 bits");
+        assert!(
+            read_object_identifier(&past).is_err(),
+            "and refused read back"
+        );
+        for text in ["2.4294967295", "2.4294967216", "3.0", "1.40", "0.40.1"] {
+            assert_eq!(read_dotted(text), None, "{text}");
+        }
+        let largest = read_dotted("2.4294967215").expect("fits 32 bits");
+        assert_eq!(
+            read_object_identifier(&object_identifier(&largest)).expect("read"),
+            largest
+        );
+        let padded = read_object_identifier(&[0x2b, 0x80, 0x01]).expect_err("padded");
+        assert!(
+            padded.message.contains("leading 0x80"),
+            "{}",
+            padded.message
+        );
     }
 
     #[test]

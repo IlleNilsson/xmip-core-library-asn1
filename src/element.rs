@@ -63,12 +63,23 @@ impl<'a> Element<'a> {
     /// children, where it is there.
     ///
     /// # Errors
-    /// As [`Element::read`].
+    /// As [`Element::read`], or the wrapper holds more than the one element
+    /// an explicit tag wraps (X.690 8.14.3).
     pub fn field(&self, number: u8) -> Result<Option<Element<'a>>> {
         self.children()?
             .into_iter()
             .find(|child| child.tag == context(number, true))
-            .map(|wrapper| Self::read(wrapper.content).map(|(inner, _)| inner))
+            .map(|wrapper| {
+                let (inner, rest) = Self::read(wrapper.content)?;
+                if rest.is_empty() {
+                    Ok(inner)
+                } else {
+                    Err(Asn1Error::new(format!(
+                        "[{number}] holds {} bytes after the one element it wraps",
+                        rest.len()
+                    )))
+                }
+            })
             .transpose()
     }
 
@@ -127,6 +138,19 @@ mod tests {
             Some(&b"HTTP"[..])
         );
         assert_eq!(element.field(3).expect("read"), None);
+    }
+
+    #[test]
+    fn a_tagged_field_with_bytes_after_its_element_is_refused() {
+        let smuggled = [tlv(INTEGER, &[5]), tlv(OCTET_STRING, b"x")].concat();
+        let sequence = tlv(SEQUENCE, &tlv(context(0, true), &smuggled));
+        let (element, _) = Element::read(&sequence).expect("read");
+        let failure = element.field(0).expect_err("trailing");
+        assert!(
+            failure.message.contains("3 bytes after"),
+            "{}",
+            failure.message
+        );
     }
 
     #[test]

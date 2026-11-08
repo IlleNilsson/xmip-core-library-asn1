@@ -13,7 +13,14 @@
 //! of one subset with six sets of error messages. The subset is kept:
 //! the high-tag-number form and the indefinite length are refused, which no
 //! protocol Xmip speaks needs, and a writer here always uses the shortest
-//! definite length, which is DER and is also valid BER.
+//! definite length, which is DER and is also valid BER. The reader is DER
+//! too: a length in the long form under 128 or with a zero first byte, an
+//! `INTEGER` padded past its sign, an identifier arc padded with `0x80` and
+//! an explicit tag holding more than its one element are each refused, so
+//! one value has one encoding and nothing rides after it. That is the
+//! reading for X.509, signatures and anything hashed or signed; [`ber`] is
+//! the same reader for the protocols that speak BER — LDAP, SNMP, MMS and
+//! GOOSE — and takes a length in any definite form.
 //!
 //! Nothing here knows what a tag means. [`Element`] reads the explicitly
 //! tagged fields Kerberos and SPNEGO are made of; the flat functions read and
@@ -22,6 +29,7 @@
 //! A capability turns an [`Asn1Error`] into its own error with `From`, so a
 //! technology writes `?` and the reason travels unchanged.
 
+pub mod ber;
 mod decode;
 mod element;
 mod encode;

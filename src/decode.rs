@@ -1,15 +1,34 @@
-//! Reading: the element at the head of some bytes, or off a stream.
+//! Reading: the element at the head of some bytes, or off a stream, by
+//! the distinguished rules here and by the basic ones in [`crate::ber`],
+//! one reader for both that differs only in the length it takes.
 
 use std::io::Read;
 
 use crate::{Asn1Error, Result};
 
+/// Which of X.690's encoding rules a length is read by.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Rules {
+    /// The distinguished rules: one length for one value, the shortest.
+    Der,
+    /// The basic rules: a definite length in any form, a long form under
+    /// 128 and zero bytes in front of it included.
+    Ber,
+}
+
 /// The first element of `bytes`: its tag, its contents, and what follows.
 ///
 /// # Errors
 /// Nothing there, cut short, a tag of the high-tag-number form, or a length
-/// that is indefinite, wider than four bytes or past the end.
+/// that is indefinite, wider than four bytes, past the end, or not the
+/// shortest DER writes (X.690 10.1): a long form under 128, or a zero first
+/// byte.
 pub fn read(bytes: &[u8]) -> Result<(u8, &[u8], &[u8])> {
+    read_by(bytes, Rules::Der)
+}
+
+/// [`read`] by `rules`.
+pub(crate) fn read_by(bytes: &[u8], rules: Rules) -> Result<(u8, &[u8], &[u8])> {
     let (&tag, after_tag) = bytes
         .split_first()
         .ok_or_else(|| Asn1Error::new("an element was expected and there is none"))?;
@@ -18,7 +37,7 @@ pub fn read(bytes: &[u8]) -> Result<(u8, &[u8], &[u8])> {
             "an element's tag is of the high-tag-number form, which no protocol here uses",
         ));
     }
-    let (length, took) = length(after_tag)?;
+    let (length, took) = length(after_tag, rules)?;
     let rest = &after_tag[took..];
     let (contents, rest) = rest.split_at_checked(length).ok_or_else(|| {
         Asn1Error::new(format!(
@@ -30,8 +49,9 @@ pub fn read(bytes: &[u8]) -> Result<(u8, &[u8], &[u8])> {
 }
 
 /// The definite length at the head of `bytes`: what it says, and how many
-/// bytes saying so took.
-fn length(bytes: &[u8]) -> Result<(usize, usize)> {
+/// bytes saying so took. Both rules refuse the indefinite form and more
+/// than four bytes of it; only DER refuses one longer than it needs.
+fn length(bytes: &[u8], rules: Rules) -> Result<(usize, usize)> {
     let &first = bytes
         .first()
         .ok_or_else(|| Asn1Error::new("an element ends before its length"))?;
@@ -47,9 +67,19 @@ fn length(bytes: &[u8]) -> Result<(usize, usize)> {
     let digits = bytes
         .get(1..=width)
         .ok_or_else(|| Asn1Error::new("an element ends inside its length"))?;
+    if rules == Rules::Der && digits[0] == 0 {
+        return Err(Asn1Error::new(
+            "an element's length starts with a zero byte, which DER writes shorter",
+        ));
+    }
     let said = digits
         .iter()
         .fold(0usize, |sum, &digit| (sum << 8) | usize::from(digit));
+    if rules == Rules::Der && said < 0x80 {
+        return Err(Asn1Error::new(format!(
+            "an element's length {said} is in the long form, which DER writes in one byte"
+        )));
+    }
     Ok((said, 1 + width))
 }
 
@@ -59,7 +89,12 @@ fn length(bytes: &[u8]) -> Result<(usize, usize)> {
 /// # Errors
 /// As [`read`], or the element carries another tag.
 pub fn expect(bytes: &[u8], tag: u8) -> Result<(&[u8], &[u8])> {
-    let (found, contents, rest) = read(bytes)?;
+    expect_by(bytes, tag, Rules::Der)
+}
+
+/// [`expect`] by `rules`.
+pub(crate) fn expect_by(bytes: &[u8], tag: u8, rules: Rules) -> Result<(&[u8], &[u8])> {
+    let (found, contents, rest) = read_by(bytes, rules)?;
     if found != tag {
         return Err(Asn1Error::new(format!(
             "an element tagged {tag:#04x} was expected and {found:#04x} arrived"
@@ -72,10 +107,15 @@ pub fn expect(bytes: &[u8], tag: u8) -> Result<(&[u8], &[u8])> {
 ///
 /// # Errors
 /// As [`read`], for any of them.
-pub fn read_all(mut bytes: &[u8]) -> Result<Vec<(u8, &[u8])>> {
+pub fn read_all(bytes: &[u8]) -> Result<Vec<(u8, &[u8])>> {
+    read_all_by(bytes, Rules::Der)
+}
+
+/// [`read_all`] by `rules`.
+pub(crate) fn read_all_by(mut bytes: &[u8], rules: Rules) -> Result<Vec<(u8, &[u8])>> {
     let mut out = Vec::new();
     while !bytes.is_empty() {
-        let (tag, contents, rest) = read(bytes)?;
+        let (tag, contents, rest) = read_by(bytes, rules)?;
         out.push((tag, contents));
         bytes = rest;
     }
@@ -126,13 +166,21 @@ pub fn read_unsigned(contents: &[u8]) -> Result<u64> {
 }
 
 /// The two's complement `contents` spell, the one reading of an
-/// `INTEGER`'s contents the typed readers above take their range from.
+/// `INTEGER`'s contents the typed readers above take their range from;
+/// a first byte its sign does not need is refused (X.690 8.3.2).
 fn twos_complement(contents: &[u8]) -> Result<i128> {
     if contents.is_empty() || contents.len() > 9 {
         return Err(Asn1Error::new(format!(
             "an INTEGER of {} bytes, where one to nine are read",
             contents.len()
         )));
+    }
+    if let [first, second, ..] = contents
+        && ((*first == 0x00 && second & 0x80 == 0) || (*first == 0xff && second & 0x80 != 0))
+    {
+        return Err(Asn1Error::new(
+            "an INTEGER padded with a byte its sign does not need, which DER writes shorter",
+        ));
     }
     let mut value: i128 = if contents[0] & 0x80 != 0 { -1 } else { 0 };
     for &byte in contents {
@@ -149,6 +197,15 @@ fn twos_complement(contents: &[u8]) -> Result<i128> {
 /// The stream ends or fails first, the length is not one [`read`] reads, or
 /// the element is larger than `largest`.
 pub fn read_element(stream: &mut impl Read, largest: usize) -> Result<Vec<u8>> {
+    read_element_by(stream, largest, Rules::Der)
+}
+
+/// [`read_element`] by `rules`.
+pub(crate) fn read_element_by(
+    stream: &mut impl Read,
+    largest: usize,
+    rules: Rules,
+) -> Result<Vec<u8>> {
     let cut = |failure: std::io::Error| {
         Asn1Error::new(format!("an element was cut short on the stream: {failure}"))
     };
@@ -160,7 +217,7 @@ pub fn read_element(stream: &mut impl Read, largest: usize) -> Result<Vec<u8>> {
         stream.read_exact(&mut more).map_err(cut)?;
         element.extend_from_slice(&more);
     }
-    let (said, _) = length(&element[1..])?;
+    let (said, _) = length(&element[1..], rules)?;
     if said > largest {
         return Err(Asn1Error::new(format!(
             "an element says {said} bytes, more than the {largest} this reads"
@@ -210,6 +267,26 @@ mod tests {
             read_integer(&[0x00, 0x80, 0, 0, 0, 0, 0, 0, 0]).is_err(),
             "2^63"
         );
+    }
+
+    #[test]
+    fn a_length_or_integer_that_der_writes_shorter_is_refused() {
+        let refused = |bytes: &[u8]| read(bytes).expect_err("refused").message;
+        assert!(refused(&[0x04, 0x81, 0x05, 1, 2, 3, 4, 5]).contains("long form"));
+        assert!(refused(&[0x04, 0x82, 0x00, 0x05, 1, 2, 3, 4, 5]).contains("zero byte"));
+        let mut stream: &[u8] = &[0x04, 0x84, 0, 0, 0, 1, 7];
+        assert!(read_element(&mut stream, 16).is_err(), "padded on a stream");
+        assert!(
+            read(&tlv(OCTET_STRING, &[7; 128])).is_ok(),
+            "128 is long form"
+        );
+        for padded in [&[0x00, 0x05][..], &[0xff, 0xff], &[0x00, 0x00, 0x80]] {
+            let message = read_integer(padded).expect_err("padded").message;
+            assert!(message.contains("does not need"), "{message}");
+            assert!(read_unsigned(padded).is_err());
+        }
+        assert_eq!(read_integer(&[0xff, 0x7f]).expect("minimal"), -129);
+        assert_eq!(read_integer(&[0x00]).expect("zero"), 0);
     }
 
     #[test]
