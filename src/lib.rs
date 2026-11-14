@@ -44,6 +44,8 @@ pub use oid::{dotted, object_identifier, read_dotted, read_object_identifier};
 pub const BOOLEAN: u8 = 0x01;
 /// `INTEGER`.
 pub const INTEGER: u8 = 0x02;
+/// `BIT STRING`: its first content byte counts the unused bits after it.
+pub const BIT_STRING: u8 = 0x03;
 /// `OCTET STRING`.
 pub const OCTET_STRING: u8 = 0x04;
 /// `NULL`.
@@ -52,6 +54,10 @@ pub const NULL: u8 = 0x05;
 pub const OBJECT_IDENTIFIER: u8 = 0x06;
 /// `ENUMERATED`: an LDAP result code.
 pub const ENUMERATED: u8 = 0x0a;
+/// `UTF8String`.
+pub const UTF8_STRING: u8 = 0x0c;
+/// `UTCTime`: a two-digit year.
+pub const UTC_TIME: u8 = 0x17;
 /// `GeneralizedTime`.
 pub const GENERALIZED_TIME: u8 = 0x18;
 /// `VisibleString`.
@@ -60,6 +66,8 @@ pub const VISIBLE_STRING: u8 = 0x1a;
 pub const GENERAL_STRING: u8 = 0x1b;
 /// `SEQUENCE` and `SEQUENCE OF`, constructed.
 pub const SEQUENCE: u8 = 0x30;
+/// `SET` and `SET OF`, constructed.
+pub const SET: u8 = 0x31;
 
 /// The tag of `[n]`, context-specific, constructed or primitive.
 #[must_use]

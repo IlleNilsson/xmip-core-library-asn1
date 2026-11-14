@@ -42,7 +42,11 @@ SNMP's counters and gauges read through) and written either way (`integer`,
 dotted text X.660 writes them in (`dotted`, `read_dotted`). SNMP carried the
 only copy of the identifier until 2026-09-24, and its dotted text, the
 unsigned reader and writer until 2026-09-28, when this crate also read a
-32-bit `INTEGER` a second way.
+32-bit `INTEGER` a second way. The universal tags are named once here, the
+`BIT STRING`, `UTF8String`, `UTCTime` and `SET` a certificate is made of
+among them since 2026-11-13, when the estate's one certificate reader
+(`xmip-core-library-tls`'s `certificate`) and provisioning's writer stopped
+naming them each.
 
 What a `GeneralString` or a `GeneralizedTime` means to Kerberos — UTF-8
 text, and whole seconds in UTC only — is Kerberos's, in
